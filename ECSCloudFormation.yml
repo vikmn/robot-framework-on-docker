@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Common VPC and subnet configurations'
+Resources:
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.30.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+      - Key: foo
+        Value: bar
+  myInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: foo
+        Value: bar
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: myVPC
+      InternetGatewayId:
+        Ref: myInternetGateway
+  myRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: myVPC
+      Tags:
+      - Key: foo
+        Value: bar
+  myRoute:
+    Type: AWS::EC2::Route
+    DependsOn: myInternetGateway
+    Properties:
+      RouteTableId:
+        Ref: myRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: myInternetGateway
+  subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: 172.30.1.0/24
+      AvailabilityZone: "eu-west-2a"
+      Tags:
+      - Key: foo
+        Value: bar
+  subnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: subnet1
+      RouteTableId:
+        Ref: myRouteTable
+  subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: 172.30.2.0/24
+      AvailabilityZone: "eu-west-2b"
+      Tags:
+      - Key: foo
+        Value: bar
+  subnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: subnet2
+      RouteTableId:
+        Ref: myRouteTable
+  subnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: 172.30.3.0/24
+      AvailabilityZone: "eu-west-2c"
+      Tags:
+      - Key: foo
+        Value: bar
+  subnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: subnet3
+      RouteTableId:
+        Ref: myRouteTable
+  ecsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: windows
+  ec2SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Enable HTTP and RDP"
+      SecurityGroupIngress: 
+        -
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+      VpcId:
+        Ref: myVPC
+  ecsEC2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: "ami-0b424d1a14d65dc82"
+      InstanceType: t2.micro
+      SubnetId:
+        Ref: subnet1
+      UserData:
+        Fn::Base64: !Sub |     # No more Fn::Join needed
+          <powershell>
+            Import-Module ECSTools
+            Initialize-ECSAgent -Cluster 'windows' -EnableTaskIAMRole
+          </powershell>
+  ec2ElasticIp:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      InstanceId:
+        Ref: ecsEC2Instance
+  taskdefinition: 
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      RequiresCompatibilities:
+        - "EC2"
+      Family: "windows-simple-iis"
+      ContainerDefinitions: 
+        - 
+          Name: "windows_sample_app"
+          Image: "microsoft/iis"
+          Cpu: "512"
+          EntryPoint: 
+            - powershell
+            - "-Command"
+          Command: 
+            - "New-Item -Path C:\\inetpub\\wwwroot\\index.html -Type file -Value '<html> <head> <title>Amazon ECS Sample App</title> <style>body {margin-top: 40px; background-color: #333;} </style> </head><body> <div style=color:white;text-align:center> <h1>Amazon ECS Sample App</h1> <h2>Congratulations!</h2> <p>Your application is now running on a container in Amazon ECS.</p>'; C:\\ServiceMonitor.exe w3svc"
+          PortMappings:
+            -
+              ContainerPort: 80
+              HostPort: 8080
+          Memory: "1024"
+          Essential: "true"
